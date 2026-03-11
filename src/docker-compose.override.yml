@@ -1,154 +1,281 @@
+# ------------------------------------------------------------
+# Docker Compose File Version
+# ------------------------------------------------------------
+# Version 3.4 supports container orchestration suitable for
+# microservices environments.
 version: '3.4'
 
 services:
+
+  # ------------------------------------------------------------
+  # PostgreSQL Database for Catalog Service
+  # ------------------------------------------------------------
   catalogdb:
     container_name: catalogdb
+
+    # Environment variables used by the PostgreSQL container
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=CatalogDb
+
+    # Always restart container if it stops
     restart: always
+
+    # Expose PostgreSQL port
     ports:
         - "5432:5432"
+
+    # Persistent volume to store database data
     volumes:
       - postgres_catalog:/var/lib/postgresql/data/ 
       
+
+  # ------------------------------------------------------------
+  # PostgreSQL Database for Basket Service
+  # ------------------------------------------------------------
   basketdb:
     container_name: basketdb
+
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=BasketDb
+
     restart: always
+
+    # Different host port to avoid collision with catalogdb
     ports:
         - "5433:5432"
+
     volumes:
       - postgres_basket:/var/lib/postgresql/data/ 
 
+
+  # ------------------------------------------------------------
+  # Redis Distributed Cache
+  # ------------------------------------------------------------
+  # Used for caching basket data and improving performance
   distributedcache:
     container_name: distributedcache
     restart: always
+
     ports:
       - "6379:6379"
 
+
+  # ------------------------------------------------------------
+  # SQL Server Database for Ordering Service
+  # ------------------------------------------------------------
   orderdb:
     container_name: orderdb
+
     environment:
       - ACCEPT_EULA=Y
       - SA_PASSWORD=SwN12345678
+
     restart: always
+
     ports:
       - "1433:1433"
 
+
+  # ------------------------------------------------------------
+  # RabbitMQ Message Broker
+  # ------------------------------------------------------------
   messagebroker:
     container_name: messagebroker
     hostname: ecommerce-mq
+
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
-    restart: always
-    ports:
-      - "5672:5672"
-      - "15672:15672"
 
+    restart: always
+
+    ports:
+      - "5672:5672"    # RabbitMQ messaging port
+      - "15672:15672"  # RabbitMQ management UI
+
+
+  # ------------------------------------------------------------
+  # Catalog API Microservice
+  # ------------------------------------------------------------
   catalog.api:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+
+      # Internal ports used inside container
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
+      # PostgreSQL connection string
       - ConnectionStrings__Database=Server=catalogdb;Port=5432;Database=CatalogDb;User Id=postgres;Password=postgres;Include Error Detail=true
+
     depends_on:
       - catalogdb
+
     ports:
       - "6000:8080"
       - "6060:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
 
+
+  # ------------------------------------------------------------
+  # Basket API Microservice
+  # ------------------------------------------------------------
   basket.api:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
+      # PostgreSQL connection string
       - ConnectionStrings__Database=Server=basketdb;Port=5432;Database=BasketDb;User Id=postgres;Password=postgres;Include Error Detail=true
+
+      # Redis connection
       - ConnectionStrings__Redis=distributedcache:6379
+
+      # gRPC communication with Discount service
       - GrpcSettings__DiscountUrl=https://discount.grpc:8081
+
+      # RabbitMQ configuration
       - MessageBroker__Host=amqp://ecommerce-mq:5672
       - MessageBroker__UserName=guest
       - MessageBroker__Password=guest
+
     depends_on:
       - basketdb
       - distributedcache
       - discount.grpc
       - messagebroker
+
     ports:
       - "6001:8080"
       - "6061:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
 
+
+  # ------------------------------------------------------------
+  # Discount gRPC Microservice
+  # ------------------------------------------------------------
   discount.grpc:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
+      # SQLite database for discounts
       - ConnectionStrings__Database=Data Source=discountdb
+
     ports:
       - "6002:8080"
       - "6062:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
 
+
+  # ------------------------------------------------------------
+  # Ordering API Microservice
+  # ------------------------------------------------------------
   ordering.api:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
+      # SQL Server connection string
       - ConnectionStrings__Database=Server=orderdb;Database=OrderDb;User Id=sa;Password=SwN12345678;Encrypt=False;TrustServerCertificate=True
+
+      # RabbitMQ configuration
       - MessageBroker__Host=amqp://ecommerce-mq:5672
       - MessageBroker__UserName=guest
       - MessageBroker__Password=guest
+
+      # Feature flag
       - FeatureManagement__OrderFullfilment=false
+
     depends_on:
       - orderdb
       - messagebroker
+
     ports:
       - "6003:8080"
       - "6063:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
 
+
+  # ------------------------------------------------------------
+  # YARP API Gateway
+  # ------------------------------------------------------------
   yarpapigateway:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
     depends_on:
       - catalog.api
       - basket.api
       - ordering.api
+
     ports:
       - "6004:8080"
       - "6064:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
 
+
+  # ------------------------------------------------------------
+  # Shopping Web Application
+  # ------------------------------------------------------------
   shopping.web:
+
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
       - ASPNETCORE_HTTPS_PORTS=8081
+
+      # API Gateway address used by frontend
       - ApiSettings__GatewayAddress=http://yarpapigateway:8080
+
     depends_on:
       - yarpapigateway
+
     ports:
       - "6005:8080"
       - "6065:8081"
+
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+
+
+# ------------------------------------------------------------
+# Persistent Volumes
+# ------------------------------------------------------------
+# These volumes ensure database data is not lost
+# when containers restart.
+volumes:
+
+  postgres_catalog:
+
+  postgres_basket:
