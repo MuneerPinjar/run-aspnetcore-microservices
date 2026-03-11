@@ -1,63 +1,182 @@
+# ------------------------------------------------------------
+# Docker Compose Version
+# ------------------------------------------------------------
+# Specifies the version of the Docker Compose file format.
+# Version 3.x is commonly used for container orchestration
+# in microservices environments.
 version: '3.4'
 
 services:
+
+  # ------------------------------------------------------------
+  # PostgreSQL Database for Catalog Service
+  # ------------------------------------------------------------
+  # This container runs a PostgreSQL instance that will be used
+  # by the Catalog microservice to store product data.
   catalogdb:
     image: postgres
 
+
+  # ------------------------------------------------------------
+  # PostgreSQL Database for Basket Service
+  # ------------------------------------------------------------
+  # Another PostgreSQL instance used by the Basket microservice
+  # to store shopping cart data.
   basketdb:
     image: postgres
 
+
+  # ------------------------------------------------------------
+  # Redis Distributed Cache
+  # ------------------------------------------------------------
+  # Redis is used as an in-memory distributed cache.
+  #
+  # In e-commerce systems it is typically used for:
+  # - Session storage
+  # - Basket caching
+  # - Fast read operations
   distributedcache:
     image: redis
 
+
+  # ------------------------------------------------------------
+  # SQL Server Database for Ordering Service
+  # ------------------------------------------------------------
+  # This container runs Microsoft SQL Server which is used
+  # by the Ordering microservice.
+  #
+  # Order processing usually requires strong consistency
+  # and relational data modeling, which is why SQL Server
+  # is used here.
   orderdb:
     image: mcr.microsoft.com/mssql/server
 
+
+  # ------------------------------------------------------------
+  # RabbitMQ Message Broker
+  # ------------------------------------------------------------
+  # RabbitMQ enables asynchronous communication between
+  # microservices using message queues.
+  #
+  # Example use case:
+  # Basket → Order → Payment → Notification
+  #
+  # The "management" tag provides a web UI for monitoring.
   messagebroker:
     image: rabbitmq:management
 
+
+  # ------------------------------------------------------------
+  # Catalog Microservice
+  # ------------------------------------------------------------
+  # Responsible for managing product catalog information.
+  #
+  # This service exposes APIs for:
+  # - Creating products
+  # - Updating products
+  # - Retrieving product lists
+  #
+  # The image name will be built locally from the Dockerfile.
   catalog.api:
+
+    # Image name used for the container.
+    # If DOCKER_REGISTRY variable exists, it will prefix the name.
     image: ${DOCKER_REGISTRY-}catalogapi
+
+    # Build instructions
     build:
+
+      # Root folder for build context
       context: .
+
+      # Path to the Dockerfile
       dockerfile: Services/Catalog/Catalog.API/Dockerfile
 
+
+  # ------------------------------------------------------------
+  # Basket Microservice
+  # ------------------------------------------------------------
+  # Handles user shopping cart functionality.
+  #
+  # Typical operations:
+  # - Add item to cart
+  # - Remove item
+  # - Get user basket
   basket.api:
     image: ${DOCKER_REGISTRY-}basketapi
     build:
       context: .
       dockerfile: Services/Basket/Basket.API/Dockerfile
 
+
+  # ------------------------------------------------------------
+  # Discount gRPC Service
+  # ------------------------------------------------------------
+  # Provides discount information using gRPC communication.
+  #
+  # gRPC is faster than REST and commonly used for
+  # internal microservice-to-microservice communication.
   discount.grpc:
     image: ${DOCKER_REGISTRY-}discountgrpc
     build:
       context: .
       dockerfile: Services/Discount/Discount.Grpc/Dockerfile
 
+
+  # ------------------------------------------------------------
+  # Ordering Microservice
+  # ------------------------------------------------------------
+  # Handles order placement, payment processing,
+  # and order history.
   ordering.api:
     image: ${DOCKER_REGISTRY-}orderingapi
     build:
       context: .
       dockerfile: Services/Ordering/Ordering.API/Dockerfile
 
+
+  # ------------------------------------------------------------
+  # API Gateway (YARP)
+  # ------------------------------------------------------------
+  # YARP (Yet Another Reverse Proxy) acts as an API Gateway.
+  #
+  # It routes external client requests to the correct
+  # microservices.
+  #
+  # Example routing:
+  # /products  → Catalog API
+  # /basket    → Basket API
+  # /orders    → Ordering API
   yarpapigateway:
     image: ${DOCKER_REGISTRY-}yarpapigateway
     build:
       context: .
       dockerfile: ApiGateways/YarpApiGateway/Dockerfile
 
+
+  # ------------------------------------------------------------
+  # Shopping Web Application
+  # ------------------------------------------------------------
+  # Frontend web application that communicates
+  # with the backend APIs through the API Gateway.
+  #
+  # Typically implemented using ASP.NET MVC or Blazor.
   shopping.web:
     image: ${DOCKER_REGISTRY-}shoppingweb
     build:
       context: .
       dockerfile: WebApps/Shopping.Web/Dockerfile
 
+
+# ------------------------------------------------------------
+# Docker Volumes
+# ------------------------------------------------------------
+# Volumes allow persistent storage so that data
+# is not lost when containers restart.
 volumes:
+
+  # Persistent storage for Catalog PostgreSQL database
   postgres_catalog:
+
+  # Persistent storage for Basket PostgreSQL database
   postgres_basket:
-
-
-
-
-
-
